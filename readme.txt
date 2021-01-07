@@ -1,5 +1,5 @@
 UE Viewer
-(c) Konstantin Nosov (Gildor), 2007-2020
+(c) Konstantin Nosov (Gildor), 2007-2021
 
 
 Please support the development by making a donation here:
@@ -216,6 +216,21 @@ ooz
 
 Changes
 ~~~~~~~
+30.12.2020
+- hyperlinks for SkeletalMesh sub-objects: Skeleton, AnimSet, AnimSequence, tagged meshes
+- highlighting tagges skeletal mesh when mouse points at its name
+- showing properties of non-visual objects
+
+28.12.2020
+- support for multiple AES keys provided with UI or command line; commane line systax has been extended to
+  support multiple -aes=... options, or with providing a text file with multiple keys: -aes=@filename.txt
+
+12.12.2020
+- saving .props.txt when exporting skeletal and static meshes, and for animation
+
+22.11.2020
+- added option for disabling vertex mesh loading (-novert command line option)
+
 07.11.2020
 - UE4.26 support
 

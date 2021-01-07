@@ -2082,6 +2082,12 @@ UStaticMesh4::~UStaticMesh4()
 	delete ConvertedMesh;
 }
 
+FSkeletalMeshLODInfo::FSkeletalMeshLODInfo()
+{}
+
+FSkeletalMeshLODInfo::~FSkeletalMeshLODInfo()
+{}
+
 
 // Ambient occlusion data
 // When changed, constant DISTANCEFIELD_DERIVEDDATA_VER TEXT is updated
@@ -2234,6 +2240,35 @@ struct FWeightedRandomSampler
 		return Ar << S.Prob << S.Alias << S.TotalWeight;
 	}
 };
+
+FArchive& operator<<(FArchive& Ar, FSkeletalMeshSamplingLODBuiltData& V)
+{
+	// Serialize FSkeletalMeshAreaWeightedTriangleSampler AreaWeightedSampler
+	// It is derived from FWeightedRandomSampler
+	FWeightedRandomSampler Sampler;
+	return Ar << Sampler;
+}
+
+FArchive& operator<<(FArchive& Ar, FSkeletalMeshSamplingRegionBuiltData& V)
+{
+	TArray<int32> TriangleIndices;
+	TArray<int32> BoneIndices;
+
+	Ar << TriangleIndices;
+	Ar << BoneIndices;
+
+	// Serialize FSkeletalMeshAreaWeightedTriangleSampler AreaWeightedSampler
+	// It is derived from FWeightedRandomSampler
+	FWeightedRandomSampler Sampler;
+	Ar << Sampler;
+
+	if (Ar.Game >= GAME_UE4(21)) // FNiagaraObjectVersion::SkeletalMeshVertexSampling
+	{
+		TArray<int32> Vertices;
+		Ar << Vertices;
+	}
+	return Ar;
+}
 
 typedef FWeightedRandomSampler FStaticMeshSectionAreaWeightedTriangleSampler;
 typedef FWeightedRandomSampler FStaticMeshAreaWeightedSectionSampler;
@@ -2561,6 +2596,7 @@ no_nav_collision:
 	Ar << LightingGuid;
 
 	//!! TODO: support sockets
+	// Warning: serialized twice - as UPROPERTY and as a binary serializer
 	Ar << Sockets;
 	if (Sockets.Num()) appPrintf("StaticMesh has %d sockets\n", Sockets.Num());
 

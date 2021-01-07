@@ -428,14 +428,33 @@ void USkeleton::ConvertAnims(UAnimSequence4* Seq)
 		ConvertedAnim = AnimSet;
 
 		// Copy bone names
-		AnimSet->TrackBoneNames.Empty(ReferenceSkeleton.RefBoneInfo.Num());
-		for (int i = 0; i < ReferenceSkeleton.RefBoneInfo.Num(); i++)
+		int NumBones = ReferenceSkeleton.RefBoneInfo.Num();
+		assert(BoneTree.Num() == NumBones);
+
+		AnimSet->TrackBoneNames.Empty(NumBones);
+		AnimSet->BoneModes.AddZeroed(NumBones);
+
+		for (int i = 0; i < NumBones; i++)
 		{
 			AnimSet->TrackBoneNames.Add(ReferenceSkeleton.RefBoneInfo[i].Name);
+			EBoneRetargettingMode BoneMode =EBoneRetargettingMode::Animation;
+			switch (BoneTree[i].TranslationRetargetingMode)
+			{
+			case EBoneTranslationRetargetingMode::Skeleton:
+				BoneMode = EBoneRetargettingMode::Mesh;
+				break;
+			case EBoneTranslationRetargetingMode::Animation:
+				BoneMode = EBoneRetargettingMode::Animation;
+				break;
+			case EBoneTranslationRetargetingMode::OrientAndScale:
+				BoneMode = EBoneRetargettingMode::OrientAndScale;
+				break;
+			default:
+				//todo: other modes?
+				BoneMode = EBoneRetargettingMode::OrientAndScale;
+			}
+			AnimSet->BoneModes[i] = BoneMode;
 		}
-
-		//TODO: verify if UE4 has AnimRotationOnly stuff
-		AnimSet->AnimRotationOnly = false;
 	}
 
 	if (!Seq) return; // allow calling ConvertAnims(NULL) to create empty AnimSet
@@ -511,7 +530,7 @@ void USkeleton::ConvertAnims(UAnimSequence4* Seq)
 	}
 
 	// create CAnimSequence
-	CAnimSequence *Dst = new CAnimSequence;
+	CAnimSequence *Dst = new CAnimSequence(Seq);
 	AnimSet->Sequences.Add(Dst);
 	Dst->Name      = Seq->Name;
 	Dst->NumFrames = Seq->NumFrames;
@@ -521,7 +540,13 @@ void USkeleton::ConvertAnims(UAnimSequence4* Seq)
 	// bone tracks ...
 	Dst->Tracks.Empty(NumTracks);
 
-	FMemReader Reader(Seq->CompressedByteStream.GetData(), Seq->CompressedByteStream.Num());
+	// There could be an animation consisting of only trans with offsets == -1, what means
+	// use of RefPose. In this case there's no point adding the animation to AnimSet. We'll
+	// create FMemReader even for empty CompressedByteStream, otherwise it would be hard to
+	// create a valid CAnimSequence which won't crash animation export.
+	FMemReader Reader(
+		Seq->CompressedByteStream.Num() ? Seq->CompressedByteStream.GetData() : (const uint8*)"",
+		Seq->CompressedByteStream.Num());
 	Reader.SetupFrom(*Package);
 
 	bool HasTimeTracks = (Seq->KeyEncodingFormat == AKF_VariableKeyLerp);
@@ -1387,7 +1412,12 @@ void UAnimSequence4::TransferPerTrackData(TArray<uint8>& Dst, const TArray<uint8
 void UAnimSequence4::PostLoad()
 {
 	guard(UAnimSequence4::PostLoad);
-	if (!Skeleton) return;		// missing package etc
+	if (!Skeleton)
+	{
+		// missing package etc
+		appPrintf("WARNING: unable to load animation %s, missing Skeleton\n", Name);
+		return;
+	}
 	Skeleton->ConvertAnims(this);
 
 	// Release original animation data to save memory

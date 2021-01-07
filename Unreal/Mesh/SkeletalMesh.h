@@ -88,7 +88,7 @@ struct CSkelMeshLod : public CBaseMeshLod
 #if DECLARE_VIEWER_PROPS
 	DECLARE_STRUCT(CSkelMeshLod)
 	BEGIN_PROP_TABLE
-		PROP_ARRAY(Sections, CMeshSection)
+		PROP_ARRAY(Sections, "CMeshSection")
 		PROP_INT(NumVerts)
 		VPROP_ARRAY_COUNT(Indices.Indices16, IndexCount)
 		PROP_INT(NumTexCoords)
@@ -140,7 +140,7 @@ struct CSkelMeshSocket
 class CSkeletalMesh
 {
 public:
-	UObject*				OriginalMesh;			//?? make common for all mesh classes
+	const UObject*			OriginalMesh;			//?? make common for all mesh classes
 	FBox					BoundingBox;			//?? common
 	FSphere					BoundingSphere;			//?? common
 	CVec3					MeshOrigin;
@@ -152,7 +152,7 @@ public:
 	TArray<CSkelMeshSocket>	Sockets;				//?? common (UE4 has StaticMesh sockets)
 	const class CAnimSet*	Anim;
 
-	CSkeletalMesh(UObject *Original)
+	CSkeletalMesh(const UObject *Original)
 	:	OriginalMesh(Original)
 	,	Anim(NULL)
 	{}
@@ -188,13 +188,13 @@ public:
 #if DECLARE_VIEWER_PROPS
 	DECLARE_STRUCT(CSkeletalMesh)
 	BEGIN_PROP_TABLE
-		PROP_ARRAY(Lods, CSkelMeshLod)
+		PROP_ARRAY(Lods, "CSkelMeshLod")
 		VPROP_ARRAY_COUNT(Lods, LodCount)
 		PROP_VECTOR(MeshOrigin)						// CVec3 as FVector
 		PROP_VECTOR(MeshScale)
 		PROP_ROTATOR(RotOrigin)
 		VPROP_ARRAY_COUNT(RefSkeleton, BoneCount)
-		PROP_ARRAY(Sockets, CSkelMeshSocket)
+		PROP_ARRAY(Sockets, "CSkelMeshSocket")
 		VPROP_ARRAY_COUNT(Sockets, SocketCount)
 	END_PROP_TABLE
 private:
@@ -259,12 +259,14 @@ public:
 	float					Rate;
 	TArray<CAnimTrack*>		Tracks;					// for each CAnimSet.TrackBoneNames
 	bool					bAdditive;				// used just for on-screen information
+	const UObject*			OriginalSequence;
 #if ANIM_DEBUG_INFO
 	FString					DebugInfo;
 #endif
 
-	CAnimSequence()
+	CAnimSequence(const UObject* Original = NULL)
 	: bAdditive(false)
+	, OriginalSequence(Original)
 	{}
 
 	~CAnimSequence()
@@ -278,31 +280,54 @@ public:
 
 
 // taken from UE3/SkeletalMeshComponent
-enum EAnimRotationOnly
+enum class EAnimRotationOnly
 {
-	/** Use settings defined in each AnimSet (default) */
-	EARO_AnimSet,
-	/** Force AnimRotationOnly enabled on all AnimSets, but for this SkeletalMesh only */
-	EARO_ForceEnabled,
-	/** Force AnimRotationOnly disabled on all AnimSets, but for this SkeletalMesh only */
-	EARO_ForceDisabled
+	// Use settings defined in each AnimSet (default)
+	AnimSet,
+	// Force AnimRotationOnly enabled on all AnimSets, but for this SkeletalMesh only
+	ForceEnabled,
+	// Force AnimRotationOnly disabled on all AnimSets, but for this SkeletalMesh only
+	ForceDisabled,
+
+	Count
 };
 
+
+enum class EBoneRetargettingMode : uint8
+{
+	// Use translation from animation
+	Animation,
+	// Use translation from mesh
+	Mesh,
+	// Recompute translation from difference between mesh and animation skeletons
+	OrientAndScale,
+
+	Count
+};
 
 class CAnimSet
 {
 public:
-	UObject					*OriginalAnim;			//?? make common for all mesh classes
+	const UObject*			OriginalAnim;			//?? make common for all mesh classes
 	TArray<FName>			TrackBoneNames;
 	TArray<CAnimSequence*>	Sequences;
 
-	bool					AnimRotationOnly;
-	TArray<bool>			UseAnimTranslation;		// per bone; used with AnimRotationOnly mode
-	TArray<bool>			ForceMeshTranslation;	// pre bone; used regardless of AnimRotationOnly
+	TArray<EBoneRetargettingMode> BoneModes;
 
-	CAnimSet(UObject *Original)
+	CAnimSet()
+	{}
+
+	CAnimSet(const UObject *Original)
 	:	OriginalAnim(Original)
 	{}
+
+	// Make a copy of CAnimSet, except animations
+	void CopyAllButSequences(const CAnimSet& Other)
+	{
+		OriginalAnim = Other.OriginalAnim;
+		CopyArray(TrackBoneNames, Other.TrackBoneNames);
+		CopyArray(BoneModes, Other.BoneModes);
+	}
 
 	~CAnimSet()
 	{
@@ -310,22 +335,38 @@ public:
 			delete Sequences[i];
 	}
 
-	bool ShouldAnimateTranslation(int BoneIndex, EAnimRotationOnly RotationMode = EARO_AnimSet) const
+	bool ShouldAnimateTranslation(int BoneIndex, EAnimRotationOnly RotationMode = EAnimRotationOnly::AnimSet) const
 	{
 		if (BoneIndex == 0)							// root bone is always fully animated
 			return true;
+#if 0
+		// OLD code
 		if (ForceMeshTranslation.Num() && ForceMeshTranslation[BoneIndex])
 			return false;
 		bool AnimRotationOnly2 = AnimRotationOnly;
-		if (RotationMode == EARO_ForceEnabled)
+		if (RotationMode == EAnimRotationOnly::ForceEnabled)
 			AnimRotationOnly2 = true;
-		else if (RotationMode == EARO_ForceDisabled)
+		else if (RotationMode == EAnimRotationOnly::ForceDisabled)
 			AnimRotationOnly2 = false;
 		if (!AnimRotationOnly2)
 			return true;
 		if (UseAnimTranslation.Num() && UseAnimTranslation[BoneIndex])
 			return true;
 		return false;
+#else
+		// Global override
+		if (RotationMode == EAnimRotationOnly::ForceEnabled)
+			return false;
+		else if (RotationMode == EAnimRotationOnly::ForceDisabled)
+			return true;
+
+		// Per-bone settings
+		if (BoneModes.IsValidIndex(BoneIndex))
+		{
+			return BoneModes[BoneIndex] == EBoneRetargettingMode::Animation;
+		}
+		return true;
+#endif
 	}
 };
 

@@ -84,6 +84,7 @@ void SuppressUnknownClass(const char* ClassNameWildcard)
 }
 
 
+// todo: 'ClassType' probably should be dropped
 const CTypeInfo* FindClassType(const char* Name, bool ClassType)
 {
 	guard(FindClassType);
@@ -104,7 +105,8 @@ const CTypeInfo* FindClassType(const char* Name, bool ClassType)
 
 		if (!GClasses[i].TypeInfo) appError("No typeinfo for class");
 		const CTypeInfo *Type = GClasses[i].TypeInfo();
-		if (Type->IsClass() != ClassType) continue;
+		// FindUnversionedProp() calls FindStructType for classes and structs, so disable the comparison for now
+		// if (Type->IsClass() != ClassType) continue;
 #if DEBUG_TYPES
 		appPrintf("ok %s\n", Type->Name);
 #endif
@@ -330,7 +332,7 @@ static void CollectProps(const CTypeInfo *Type, const void *Data, CPropDump &Dum
 		for (int PropIndex = 0; PropIndex < Type->NumProps; PropIndex++)
 		{
 			const CPropInfo *Prop = Type->Props + PropIndex;
-			if (!Prop->TypeName)
+			if (!Prop->Count)
 			{
 //				appPrintf("  %3d: (dummy) %s\n", PropIndex, Prop->Name);
 				continue;
@@ -544,6 +546,66 @@ static void PrintProps(const CPropDump &Dump, FArchive& Ar, int Indent, bool Top
 }
 
 
+class FLineOutputArchive : public FArchive
+{
+	DECLARE_ARCHIVE(FLineOutputArchive, FArchive);
+public:
+	typedef void (*Callback_t)(const char*);
+
+	FLineOutputArchive(Callback_t InCallback)
+	: Callback(InCallback)
+	{}
+	~FLineOutputArchive()
+	{
+		// Flush the buffer if there's anything inside
+		if (!Buffer.IsEmpty())
+		{
+			Callback(*Buffer);
+		}
+	}
+	virtual void Seek(int Pos)
+	{
+		appError("FLineOutputArchive::Seek");
+	}
+	virtual void Serialize(void *data, int size)
+	{
+		const char* dataStart = (const char*) data;
+		int length = 0;
+		for (const char* s = (const char*)data; /* none */; s++)
+		{
+			char c = *s;
+			if (c == '\n' || c == 0)
+			{
+				// Append data to buffer
+				Buffer.AppendChars(dataStart, length);
+				dataStart = s + 1;
+				length = 0;
+			}
+			if (c == '\n')
+			{
+				// Flush only on newline character
+				Callback(*Buffer);
+				// Empty without reallocation
+				Buffer.GetDataArray().Reset();
+			}
+			else if (c == 0)
+			{
+				// End of text
+				break;
+			}
+			else
+			{
+				// Just count the character
+				length++;
+			}
+		}
+	}
+
+	Callback_t Callback;
+	FStaticString<1024> Buffer;
+};
+
+
 void CTypeInfo::DumpProps(const void *Data) const
 {
 	guard(CTypeInfo::DumpProps);
@@ -553,6 +615,20 @@ void CTypeInfo::DumpProps(const void *Data) const
 	// Indent = 0 will actually produce indent anyway, because we have parent CPropDump
 	// object which owns everything else
 	FPrintfArchive Ar;
+	PrintProps(Dump, Ar, 0, true);
+
+	unguard;
+}
+
+void CTypeInfo::DumpProps(const void* Data, void (*Callback)(const char*)) const
+{
+	guard(CTypeInfo::DumpProps);
+	CPropDump Dump;
+	CollectProps(this, Data, Dump);
+
+	// Indent = 0 will actually produce indent anyway, because we have parent CPropDump
+	// object which owns everything else
+	FLineOutputArchive Ar(Callback);
 	PrintProps(Dump, Ar, 0, true);
 
 	unguard;

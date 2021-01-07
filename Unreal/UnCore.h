@@ -63,8 +63,8 @@ class UnPackage;
 #define PACKAGE_FILE_TAG_REV	0xC1832A9E
 
 #if PROFILE
-extern int GNumSerialize;
-extern int GSerializeBytes;
+extern uint32 GNumSerialize;
+extern uint32 GSerializeBytes;
 
 void appResetProfiler();
 void appPrintProfiler(const char* label = NULL);
@@ -501,7 +501,7 @@ enum EGame
 	GAME_ENGINE    = 0xFFF0000	// mask for game engine
 };
 
-#define LATEST_SUPPORTED_UE4_VERSION		26		// UE4.XX
+#define LATEST_SUPPORTED_UE4_VERSION		27		// UE4.XX
 
 enum EPlatform
 {
@@ -976,6 +976,7 @@ public:
 	:	DataPtr((const byte*)data)
 	,	DataSize(size)
 	{
+		if (!data) appError("FMemReader constructed with NULL data");
 		IsLoading = true;
 		ArStopper = size;
 	}
@@ -2249,6 +2250,7 @@ public:
 	void TrimStartAndEndInline();
 
 	FString& AppendChar(char ch);
+	FString& AppendChars(const char* s, int count);
 
 	FORCEINLINE void RemoveAt(int index, int count = 1)
 	{
@@ -2324,6 +2326,12 @@ public:
 		Data.DataPtr = (void*)&StaticData[0];
 		Data.MaxCount = N;
 		FString::operator=(src);
+	}
+	FORCEINLINE FStaticString(int count, const char* src)
+	{
+		Data.DataPtr = (void*)&StaticData[0];
+		Data.MaxCount = N;
+		AppendChars(src, count);
 	}
 	FORCEINLINE FStaticString(const FString& Other)
 	{
@@ -2643,16 +2651,10 @@ int appDecompress(byte *CompressedBuffer, int CompressedSize, byte *Uncompressed
 
 // UE4 has built-in AES encryption
 
-extern FString GAesKey;
+extern TArray<FString> GAesKeys;
 
 // Decrypt with arbitrary key
 void appDecryptAES(byte* Data, int Size, const char* Key, int KeyLen = -1);
-
-// Decrypt with GAesKey
-inline void appDecryptAES(byte* Data, int Size)
-{
-	appDecryptAES(Data, Size, *GAesKey, GAesKey.Len());
-}
 
 // Callback called when encrypted pak file is attempted to load
 bool UE4EncryptedPak();
